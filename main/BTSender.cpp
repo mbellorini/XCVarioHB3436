@@ -22,7 +22,7 @@
 
 static TaskHandle_t pid = nullptr;
 
-DataLink *dlb;
+static DataLink *dlb;
 
 bool BTSender::selfTest(){
 	ESP_LOGI(FNAME,"SerialBT::selfTest");
@@ -65,7 +65,7 @@ void BTSender::progress(){
 		ESP_LOGI(FNAME,"SerialBT not initialized");
 		return;
 	}
-	char buf[256];
+	char buf[400];
 	int pos = 0;
 	while(SerialBT->available() && (pos < 256) ) {
 		char byte = (char)SerialBT->read();
@@ -81,12 +81,12 @@ void BTSender::progress(){
 		// ESP_LOG_BUFFER_HEXDUMP(FNAME,rx.c_str(),pos, ESP_LOG_INFO);
 	}
 	if( SerialBT->hasClient() ) {
-		SString msg;
-		if ( Router::pullMsg( bt_tx_q, msg ) ){
+		int len = Router::pullBlock( bt_tx_q, buf, 400 );
+		if( len ){
 			// ESP_LOGI(FNAME,"<BT TX %d bytes", msg.length() );
 			// ESP_LOG_BUFFER_HEXDUMP(FNAME,msg.c_str(),msg.length(), ESP_LOG_INFO);
-			SerialBT->write( (const uint8_t *)msg.c_str(), msg.length() );
-			DM.monitorString( MON_BLUETOOTH, DIR_TX, msg.c_str(), msg.length() );
+			SerialBT->write( (const uint8_t *)buf, len );
+			DM.monitorString( MON_BLUETOOTH, DIR_TX, buf, len );
 		}
 	}
 }
@@ -103,4 +103,4 @@ void BTSender::begin(){
 }
 
 // dummy, we don't implement BLE right now
-extern "C" void btsnd_hcic_ble_update_adv_report_flow_control( int ignore ) {};
+// extern "C" void btsnd_hcic_ble_update_adv_report_flow_control( int ignore ) {};

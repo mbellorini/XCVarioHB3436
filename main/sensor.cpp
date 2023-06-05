@@ -13,6 +13,7 @@
 #include "ABPMRR.h"
 #include "BMPVario.h"
 #include "BTSender.h"
+#include "BLESender.h"
 #include "Protocols.h"
 #include "DS18B20.h"
 #include "Setup.h"
@@ -144,9 +145,11 @@ static int32_t cur_gyro_bias[3];
 // Magnetic sensor / compass
 Compass *compass = 0;
 BTSender btsender;
+BLESender blesender;
 
 static float baroP=0; // barometric pressure
 static float temperature=15.0;
+static float xcvTemp=15.0;
 
 static float battery=0.0;
 static float dynamicP; // Pitot
@@ -435,12 +438,12 @@ static void grabMPU()
 	//	ESP_LOGI(FNAME, "Gyro X:%+.2f Y:%+.2f Z:%+.2f T=%f\n", gyroDPS.x, gyroDPS.y, gyroDPS.z, MPU.getTemperature());
 	// }
 	bool goodAccl = true;
-	if( abs( accelG.x - accelG_Prev.x ) > 1 || abs( accelG.y - accelG_Prev.y ) > 1 || abs( accelG.z - accelG_Prev.z ) > 1 ) {
+	if( abs( accelG.x - accelG_Prev.x ) > 5 || abs( accelG.y - accelG_Prev.y ) > 5 || abs( accelG.z - accelG_Prev.z ) > 5 ) {
 		MPU.acceleration(&accelRaw);
 		accelG = mpud::accelGravity(accelRaw, mpud::ACCEL_FS_8G);
-		if( abs( accelG.x - accelG_Prev.x ) > 1 || abs( accelG.y - accelG_Prev.y ) > 1 || abs( accelG.z - accelG_Prev.z ) > 1 ){
+		if( abs( accelG.x - accelG_Prev.x ) > 5 || abs( accelG.y - accelG_Prev.y ) > 5 || abs( accelG.z - accelG_Prev.z ) > 5 ){
 			goodAccl = false;
-			ESP_LOGE(FNAME, "accelaration change > 1 g in 0.2 S:  X:%+.2f Y:%+.2f Z:%+.2f", -accelG[2], accelG[1], accelG[0] );
+			ESP_LOGE(FNAME, "accelaration change > 5 g in 0.2 S:  X:%+.2f Y:%+.2f Z:%+.2f", -accelG[2], accelG[1], accelG[0] );
 		}
 	}
 	bool goodGyro = true;
@@ -455,9 +458,12 @@ static void grabMPU()
 		}
 	}
 	if( err == ESP_OK ){
-		// check low rotation on all 3 axes = on ground
-		if( abs( gyroDPS.x ) < MAXDRIFT && abs( gyroDPS.y ) < MAXDRIFT && abs( gyroDPS.z ) < MAXDRIFT ) {
-			if( ias.get() < 25 ){  // check no significant IAS
+		float GS=0;      // Autoleveling Gyro feature only with GPS and GS close to zero to avoid triggering at push back taxi with zero AS
+		bool gpsOK = Flarm::getGPSknots( GS );
+		// ESP_LOGI(FNAME,"GS=%.3f %d", GS, gpsOK );
+		if( gpsOK && GS < 2 && ias.get() < 5 ){  // GPS status, groundspeed and airspeed regarded for still stand
+			// check low rotation on all 3 axes = on ground
+			if( abs( gyroDPS.x ) < MAXDRIFT && abs( gyroDPS.y ) < MAXDRIFT && abs( gyroDPS.z ) < MAXDRIFT ) {
 				num_gyro_samples++;
 				for(int i=0; i<3; i++){
 					cur_gyro_bias[i] += gyroRaw[i];
@@ -487,20 +493,11 @@ static void grabMPU()
 			}
 		}
 	}
-
 	if( err == ESP_OK && goodAccl && goodGyro ) {
 		IMU::read();
 	}
 	gyroDPS_Prev = gyroDPS;
 	accelG_Prev = accelG;
-}
-
-static void lazyNvsCommit()
-{
-	uint16_t dummy;
-	if ( xQueueReceive(SetupCommon::commitSema, &dummy, 0) ) {
-		SetupCommon::commitNow();
-	}
 }
 
 static void toyFeed()
@@ -566,7 +563,7 @@ void clientLoop(void *pvParameters)
 			if( airspeed_mode.get() == MODE_CAS )
 				cas = Atmosphere::CAS( dynamicP );
 			if( gflags.haveMPU && HAS_MPU_TEMP_CONTROL ){
-				MPU.temp_control( ccount );
+				MPU.temp_control( ccount, xcvTemp );
 			}
 			if( accelG[0] > gload_pos_max.get() ){
 				gload_pos_max.set( (float)accelG[0] );
@@ -588,7 +585,6 @@ void clientLoop(void *pvParameters)
 					xSemaphoreGive( xMutex );
 				}
 			}
-			lazyNvsCommit();
 			esp_task_wdt_reset();
 			if( uxTaskGetStackHighWaterMark( bpid ) < 512 )
 				ESP_LOGW(FNAME,"Warning client task stack low: %d bytes", uxTaskGetStackHighWaterMark( bpid ) );
@@ -663,6 +659,12 @@ void readSensors(void *pvParameters){
 		}
 		if (FLAP) { FLAP->progress(); }
 		xSemaphoreTake(xMutex,portMAX_DELAY );
+		if( !(count%10) ){  // every second read temperature of baro sensor
+			float xt = baroSensor->readTemperature(ok);
+			if( ok ){
+				xcvTemp = xt;
+			}
+		}
 		baroP = baroSensor->readPressure(ok);   // 10x per second
 		xSemaphoreGive(xMutex);
 		// ESP_LOGI(FNAME,"Baro Pressure: %4.3f", baroP );
@@ -763,10 +765,9 @@ void readSensors(void *pvParameters){
 				CAN->ResetNewClient();
 			}
 		}
-		lazyNvsCommit();
 		if( gflags.haveMPU && HAS_MPU_TEMP_CONTROL ){
 			// ESP_LOGI(FNAME,"MPU temp control; T=%.2f", MPU.getTemperature() );
-			MPU.temp_control( count );
+			MPU.temp_control( count, xcvTemp );
 		}
 		esp_task_wdt_reset();
 		if( uxTaskGetStackHighWaterMark( bpid ) < 512 )
@@ -787,16 +788,17 @@ void readTemp(void *pvParameters){
 		// ESP_LOGI(FNAME,"Battery=%f V", battery );
 		if( !SetupCommon::isClient() ) {  // client Vario will get Temperature info from main Vario
 			t = ds18b20.getTemp();
+			// ESP_LOGI(FNAME,"Temp %f", t );
 			if( t ==  DEVICE_DISCONNECTED_C ) {
 				if( gflags.validTemperature == true ) {
-					ESP_LOGI(FNAME,"Temperatur Sensor disconnected, please plug Temperature Sensor");
+					ESP_LOGI(FNAME,"Temperatur Sensor disconnected");
 					gflags.validTemperature = false;
 				}
 			}
 			else
 			{
 				if( gflags.validTemperature == false ) {
-					ESP_LOGI(FNAME,"Temperatur Sensor connected, temperature valid");
+					ESP_LOGI(FNAME,"Temperatur Sensor connected");
 					gflags.validTemperature = true;
 				}
 				// ESP_LOGI(FNAME,"temperature=%2.1f", temperature );
@@ -808,7 +810,7 @@ void readTemp(void *pvParameters){
 					temp_prev = temperature;
 				}
 			}
-			ESP_LOGV(FNAME,"temperature=%f", temperature );
+			// ESP_LOGV(FNAME,"T=%f", temperature );
 			Flarm::tick();
 			if( compass )
 				compass->tick();
@@ -819,15 +821,18 @@ void readTemp(void *pvParameters){
 		theWind.tick();
 		CircleWind::tick();
 		Flarm::progress();
-		vTaskDelayUntil(&xLastWakeTime, 1000/portTICK_PERIOD_MS);
 		esp_task_wdt_reset();
-		if( (ttick++ % 5) == 0) {
+		if( (ttick++ % 50) == 0) {
 			ESP_LOGI(FNAME,"Free Heap: %d bytes", heap_caps_get_free_size(MALLOC_CAP_8BIT) );
 			if( uxTaskGetStackHighWaterMark( tpid ) < 256 )
 				ESP_LOGW(FNAME,"Warning temperature task stack low: %d bytes", uxTaskGetStackHighWaterMark( tpid ) );
 			if( heap_caps_get_free_size(MALLOC_CAP_8BIT) < 20000 )
 				ESP_LOGW(FNAME,"Warning heap_caps_get_free_size getting low: %d", heap_caps_get_free_size(MALLOC_CAP_8BIT));
 		}
+		if( (ttick%5) == 0 ){
+			SetupCommon::commitDirty();
+		}
+		vTaskDelayUntil(&xLastWakeTime, 1000/portTICK_PERIOD_MS);
 	}
 }
 
@@ -899,7 +904,6 @@ void system_startup(void *args){
 	ESP_LOGI( FNAME,"%dMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
 			(chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
 	ESP_LOGI(FNAME, "QNH.get() %.1f hPa", QNH.get() );
-	NVS.begin();
 	register_coredump();
 	Polars::begin();
 
@@ -1048,6 +1052,9 @@ void system_startup(void *args){
 	if( wireless == WL_BLUETOOTH ) {
 		wireless_id="BT ID: ";
 		btsender.begin();
+	}
+	else if( wireless == WL_BLUETOOTH_LE ){
+		blesender.begin();
 	}
 	else
 		wireless_id="WLAN SID: ";
@@ -1583,13 +1590,15 @@ void system_startup(void *args){
 extern "C" void  app_main(void)
 {
 	// Init timer infrastructure
+	Audio::shutdown();
 	esp_timer_init();
-
-	Audio::boot();
+	MPU.clearpwm();
+	Router::begin();
 	ESP_LOGI(FNAME,"app_main" );
 	ESP_LOGI(FNAME,"Now init all Setup elements");
 	bool setupPresent;
 	SetupCommon::initSetup( setupPresent );
+	Cipher::begin();
 	if( !setupPresent ){
 		if( Cipher::init() )
 			attitude_indicator.set(1);

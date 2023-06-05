@@ -3,6 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include <freertos/task.h>
 #include <atomic>
+#include <cmath>
 #include <logdef.h>
 #include "S2F.h"
 #include "AverageVario.h"
@@ -14,8 +15,6 @@ int BMPVario::holddown = 0;
 void BMPVario::begin( PressureSensor *te, PressureSensor *baro, S2F *aS2F  ) {
 	_sensorTE = te;
 	_sensorBARO = baro;
-	_init = true;
-
 	_S2FTE = 0.0;
 	myS2F = aS2F;
 }
@@ -30,11 +29,31 @@ float BMPVario::readS2FTE() {
 
 
 uint64_t lastrts = 0;
+
+void BMPVario::configChange(){
+	_damping = vario_delay.get();
+	_damping_factor = (1.0/(_damping));
+	int filter_len = rint(_damping*(10.0/3));
+	TEavg.setLength( filter_len );
+	ESP_LOGI(FNAME, "configChange damping:%f filter_len:%d", _damping, filter_len );
+}
+
 void BMPVario::setup() {
 	_qnh = QNH.get();
-	_damping = vario_delay.get();
-	_filter_len = 10;
+	configChange();
 	lastrts = esp_timer_get_time();
+	vTaskDelay(100 / portTICK_PERIOD_MS);
+	bool success;
+	_currentAlt = _sensorTE->readAltitude(_qnh, success ) * 1.03; // we want have some beep when powerd on
+	if( success ){
+		lastAltitude = _currentAlt;
+		predictAlt = _currentAlt;
+		Altitude = _currentAlt;
+		averageAlt = _currentAlt;
+		ESP_LOGI(FNAME, "Initial Alt=%0.1f",Altitude );
+	}else{
+		ESP_LOGE(FNAME, "Initial Alt read error Alt=%0.1f",Altitude );
+	}
 }
 
 
@@ -44,17 +63,17 @@ double BMPVario::readTE( float tas ) {
 	bool success;
 	// Latency supervision and correction
 	uint64_t rts = esp_timer_get_time();
-	float delta = (float)(rts - lastrts)/1000000.0;   // in seconds
-	if( delta < 0.095 ) {   // ensure delta is 100 mS at least
-		int addwait = (int)(100.0-delta*1000);
-		// ESP_LOGW(FNAME, "Too short TE time delta <95 mS: %4.1f, add wait %d ", delta*1000, addwait );
+	float time_delta = (float)(rts - lastrts)/1000000.0;   // in seconds
+	if( time_delta < 0.095 ) {   // ensure time_delta is 100 mS at least
+		int addwait = (int)(100.0-time_delta*1000);
+		// ESP_LOGW(FNAME, "Too short TE time time_delta <95 mS: %4.1f, add wait %d ", time_delta*1000, addwait );
 		delay( addwait );
 		rts = esp_timer_get_time();
-		delta = (float)(rts - lastrts)/1000000.0;
+		time_delta = (float)(rts - lastrts)/1000000.0;
 	}
 	lastrts = rts;
-	if( delta < 0.090 || delta > 0.2 )
-		ESP_LOGW(FNAME,"Vario delta=%2.3f sec", delta );
+	if( time_delta < 0.090 || time_delta > 0.2 )
+		ESP_LOGW(FNAME,"Vario time_delta=%2.3f sec", time_delta );
 
 	bmpTemp = _sensorTE->readTemperature( success );
 	// ESP_LOGI(FNAME,"BMP temp=%0.1f", bmpTemp );
@@ -73,21 +92,7 @@ double BMPVario::readTE( float tas ) {
 		if( !success )
 			_currentAlt = lastAltitude;  // ignore readout when failed
 	}
-
 	// ESP_LOGI(FNAME,"TE alt: %4.3f m", _currentAlt );
-	if( _init  ){
-		vTaskDelay(100 / portTICK_PERIOD_MS);
-		_currentAlt = _sensorTE->readAltitude(_qnh, success ) * 1.03; // we want have some beep when powerd on
-		lastAltitude = _currentAlt;
-		predictAlt = _currentAlt;
-		Altitude = _currentAlt;
-		averageAlt = _currentAlt;
-		// ESP_LOGI(FNAME,"Initial Alt=%0.1f",Altitude);
-		ESP_LOGI(FNAME, "Initial Alt=%0.1f",Altitude );
-
-		// analogOut();  // set defaults
-		_init = false;
-	}
 	averageAlt += (_currentAlt - averageAlt) * 0.1;
 	double adiff = _currentAlt - Altitude;
 	// ESP_LOGI(FNAME,"BMPVario new alt %0.1f err %0.1f", _currentAlt, err);
@@ -99,25 +104,12 @@ double BMPVario::readTE( float tas ) {
 	averageAlt += (_currentAlt - averageAlt) * 0.1;
 	double kg = (diff / (err*_errorval + diff)) * _alpha;
 	Altitude += (adiff) * kg;
-	double TE = Altitude - lastAltitude;
-	// ESP_LOGI(FNAME," TE %0.1f diff %0.1f", TE, diff);
+	double altDiff = Altitude - lastAltitude;
+	// ESP_LOGI(FNAME," altDiff %0.1f diff %0.1f", TE, diff);
 	lastAltitude = Altitude;
-
-	// ESP_LOGI(FNAME,"++++++ DELTA %0.4f", delta );
-
-	TEarr[index++] = TE / delta;
-	if (index >= _filter_len ) {
-		index = 0;
-	}
-	double TEFR = 0;
-	for ( int i = 0; i < _filter_len; i++) {
-		TEFR += TEarr[i];
-	}
-	TEFR = TEFR / _filter_len;
-
-	predictAlt = Altitude + (TEFR * delta);
-	_TEF = _TEF + ((TEFR - _TEF)/ delta ) /(_damping/delta);
-
+	double TEAVG = TEavg( altDiff / time_delta );
+	predictAlt = Altitude + (TEAVG * time_delta);
+	_TEF += ((TEAVG - _TEF)) * _damping_factor;
 	_avgTE += (_TEF - _avgTE)* (1/(10*vario_av_delay.get()));   // _av_damping in seconds, we have 10 samples per second.
 	if( holddown > 0 ) {
 		holddown--;
@@ -127,8 +119,8 @@ double BMPVario::readTE( float tas ) {
 		AverageVario::newSample( _TEF );
 	}
 	// Bird catcher
-	// if( (TE > 0.1) || (TE < -0.1) ){
-	// ESP_LOGI(FNAME,"Vario alt: %f, Vario: %f, t-delta=%2.3f sec", _currentAlt, TE, delta );
+	// if( (altDiff > 0.1) || (altDiff < -0.1) ){
+	// ESP_LOGI(FNAME,"Vario alt: %f, Vario: %f, Vario-AVG: %f, t-delta=%2.3f sec", _currentAlt, _TEF, TEAVG, time_delta );
 	//}
 	return _TEF;
 }

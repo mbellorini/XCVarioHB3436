@@ -144,7 +144,7 @@ void IMU::read()
 	float ay=0;
 	float az=0;
 
-	if( getTAS() > 10 ){
+	if( 0 /* getTAS() > 10 */ ){
 		// This part is a deterministic and noise resistant approach for centrifugal force removal
 		// 1: exstimate roll angle from Z axis omega plus airspeed
 		double roll=0;
@@ -153,12 +153,14 @@ void IMU::read()
 		// Z cross axis rotation in 3D space with roll angle correction
 		float omega = atan( ( (D2R(gyroZ)/cos( D2R(euler.roll))) * (getTAS()/3.6) ) / 9.80665 );
 		// 2: estimate angle of bank from increased acceleration in Z axis
-		positiveG += (-accelZ - positiveG)*0.08;  // some low pass filtering makes sense here
+		// positiveG += (-accelZ - positiveG)*0.08;  // some low pass filtering makes sense here
+		positiveG = -accelZ;
 		// only positive G-force is to be considered, curve at negative G is not defined
+		// Trust = TrustMin + (TrustMax – TrustMin) * ( 1 - 10^-( (LoadFactor – 1 ) * Dynamic) )
 		float groll = 0.0;
 		if( positiveG < 1.0 )
 			positiveG = 1.0;
-		else if( positiveG > 1.02 ) // unaccurate at very low g forces
+		else if( positiveG > 1.02 ) // inaccurate at very low g forces
 		    groll = acos( 1 / positiveG );
 		// estimate sign of acceleration related angle from gyro
 		if( omega < 0 )
@@ -221,7 +223,7 @@ void IMU::read()
 		kalXAngle = Kalman_GetAngle(&kalmanX, roll, 0, dt);
 		filterRoll = kalXAngle;
 		kalYAngle = Kalman_GetAngle(&kalmanY, pitch, 0, dt);
-		filterPitch += (kalYAngle - filterPitch) * 0.2;   // addittional low pass filter
+		filterPitch += (kalYAngle - filterPitch) * 0.2;   // additional low pass filter
 	}
 
 	// ESP_LOGI( FNAME,"GV-Pitch=%.1f  GV-Roll=%.1f filterYaw: %.2f curh: %.2f GX:%.3f GY:%.3f GZ:%.3f AX:%.3f AY:%.3f AZ:%.3f  FP:%.1f FR:%.1f", euler.pitch, euler.roll, filterYaw, curh, gyroX,gyroY,gyroZ, accelX, accelY, accelZ, filterPitch, filterRoll  );

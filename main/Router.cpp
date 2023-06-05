@@ -41,13 +41,19 @@ portMUX_TYPE btmux = portMUX_INITIALIZER_UNLOCKED;
 
 // Utility methods to push and pull data into/from queues
 
+static xSemaphoreHandle qMutex=NULL;
+
+void Router::begin(){
+	qMutex = xSemaphoreCreateMutex();
+}
+
 // checks if Queue is full, otherwise appends SString
 bool Router::forwardMsg( SString &s, RingBufCPP<SString, QUEUE_SIZE>& q, bool nmea ){
 	// ESP_LOGI(FNAME,"forwardMsg() len: %d, queueElem: %d queueFull:%d", s.length(), q.numElements(), q.isFull() );
 	if( !q.isFull() ) {
-		portENTER_CRITICAL_ISR(&btmux);
+		xSemaphoreTake(qMutex,portMAX_DELAY );
 		q.add( s );
-		portEXIT_CRITICAL_ISR(&btmux);
+		xSemaphoreGive(qMutex);
 		return true;
 	}
 	// ESP_LOGW(FNAME,"+++ WARNING +++ dropped msg len: %d, queueElem: %d", s.length(), q.numElements() );
@@ -65,42 +71,26 @@ void Router::clearQueue( RingBufCPP<SString, QUEUE_SIZE>& q ){
 // gets last message from ringbuffer FIFO
 bool Router::pullMsg( RingBufCPP<SString, QUEUE_SIZE>& q, SString& s ){
 	if( !q.isEmpty() ){
-		portENTER_CRITICAL_ISR(&btmux);
+		xSemaphoreTake(qMutex,portMAX_DELAY );
 		q.pull( s );
-		portEXIT_CRITICAL_ISR(&btmux);
+		xSemaphoreGive(qMutex);
 		return true;
 	}
 	return false;
 }
 
-int Router::pullMsg( RingBufCPP<SString, QUEUE_SIZE>& q, char *block ){
-	int size = 0;
-	if( !q.isEmpty() ){
-		SString s;
-		portENTER_CRITICAL_ISR(&btmux);
-		q.pull(  s );
-		portEXIT_CRITICAL_ISR(&btmux);
-		size = s.length();
-		memcpy( block, s.c_str(), size );
-	}
-	block[size]=0;
-	return size;
-}
-
 int Router::pullBlock( RingBufCPP<SString, QUEUE_SIZE>& q, char *block, int size ){
-	int len = 0;
+	xSemaphoreTake(qMutex,portMAX_DELAY );
+	int total_len = 0;
 	while( !q.isEmpty() ){
-		SString s;
-		portENTER_CRITICAL_ISR(&btmux);
-		q.pull(  s );
-		portEXIT_CRITICAL_ISR(&btmux);
-		memcpy( block+len, s.c_str(), s.length() );
-		len += s.length();
-		if( (len + SSTRLEN) > size )
+		int len = q.pull( block+total_len );
+		total_len += len;
+		if( (total_len + SSTRLEN) > size )
 			break;
 	}
-	block[len]=0;
-	return len;
+	block[total_len]=0;
+	xSemaphoreGive(qMutex);
+	return total_len;
 }
 
 // XCVario Router
@@ -131,7 +121,7 @@ void Router::routeXCV(){
 	while( pullMsg( xcv_tx_q, xcv ) ){
 		// ESP_LOGI(FNAME,"XCV data to be forwarded %d bytes", xcv.length() );
 		if ( strncmp( xcv.c_str(), "!xs", 3 ) != 0 ){  // !xs messages are XCV specific and must not go to BT,WiFi or serial Navi's
-			if( rt_xcv_wl.get() && (wireless == WL_BLUETOOTH) ) {
+			if( rt_xcv_wl.get() && ((wireless == WL_BLUETOOTH) || (wireless == WL_BLUETOOTH_LE))  ) {
 				if( forwardMsg( xcv, bt_tx_q ) ){
 					// ESP_LOGI(FNAME,"XCV data forwarded to BT device, %d bytes", xcv.length() );
 				}
@@ -177,7 +167,7 @@ void Router::routeS1(){
 				// ESP_LOGI(FNAME,"S1 RX %d bytes forwarded to WiFi port 8881", s1.length() );
 			}
 		}
-		if( rt_s1_wl.get() && (wireless == WL_BLUETOOTH) ){
+		if( rt_s1_wl.get() && ((wireless == WL_BLUETOOTH) || (wireless == WL_BLUETOOTH_LE)) ){
 			if( forwardMsg( s1, bt_tx_q )){
 				// ESP_LOGI(FNAME,"S1 RX %d bytes forwarded to BT", s1.length() );
 			}
@@ -214,7 +204,7 @@ void Router::routeS2(){
 			if( forwardMsg( s2, wl_aux_tx_q )){
 				// ESP_LOGI(FNAME,"S2 RX bytes %d forward to WiFi port 8882", s2.length() );
 			}
-		if( rt_s2_wl.get() && (wireless == WL_BLUETOOTH) ){
+		if( rt_s2_wl.get() && ((wireless == WL_BLUETOOTH) || (wireless == WL_BLUETOOTH_LE)) ){
 			if( forwardMsg( s2, bt_tx_q )){
 				// ESP_LOGI(FNAME,"S2 RX %d bytes forwarded to BT", s2.length() );
 			}
@@ -237,9 +227,9 @@ void Router::routeS2(){
 // route messages from WLAN
 void Router::routeWLAN(){
 	SString wlmsg;
-	if( wireless != WL_DISABLE  ){
-		// Route received data from WLAN ports
-		while( pullMsg( wl_vario_rx_q, wlmsg) ){
+	if( wireless == WL_WLAN_MASTER || wireless == WL_WLAN_CLIENT || wireless == WL_WLAN_STANDALONE  ){
+		// Route received data from any of the WLAN ports
+		while( pullMsg( wl_vario_rx_q, wlmsg) ){   // Port 8880 received data
 			// ESP_LOGI(FNAME,"From WLAN port 8880 RX NMEA %s", wlmsg.c_str() );
 			if( rt_s1_wl.get()  && serial1_speed.get() ){
 				if( forwardMsg( wlmsg, s1_tx_q ) ){
@@ -255,37 +245,25 @@ void Router::routeWLAN(){
 			}
 			if( rt_wl_can.get() ){
 				if( forwardMsg( wlmsg, can_tx_q ) ){
-					// ESP_LOGI(FNAME,"Send to XCV processing, TCP port 8880 received %d bytes", wlmsg.length() );
+					// ESP_LOGI(FNAME,"Send to CAN XCV processing, TCP port 8880 received %d bytes", wlmsg.length() );
 				}
 			}
 			Protocols::parseNMEA( wlmsg.c_str() );
 		}
-		while( pullMsg( wl_flarm_rx_q, wlmsg ) ){
+		while( pullMsg( wl_flarm_rx_q, wlmsg ) ){   // Port 8881 received data
 			if( rt_s1_wl.get() && serial1_speed.get() ){
 				if( forwardMsg( wlmsg, s1_tx_q ) ){
 					Serial::setRxTxNotifier( TX1_REQ );
-					// ESP_LOGI(FNAME,"Send to  device, TCP port 8881 received %d bytes", wlmsg.length() );
-				}
-			}
-			if( rt_s2_wl.get() && serial2_speed.get() ){
-				if( forwardMsg( wlmsg, s2_tx_q ) ){
-					Serial::setRxTxNotifier( TX2_REQ );
-					// ESP_LOGI(FNAME,"Send to S2 device, TCP port 8881 received %d bytes", wlmsg.length() );
+					// ESP_LOGI(FNAME,"Send to S1 device, TCP port 8881 received %d bytes", wlmsg.length() );
 				}
 			}
 			Protocols::parseNMEA( wlmsg.c_str() );
 		}
-		while( pullMsg( wl_aux_rx_q, wlmsg ) ){
-			if( rt_s1_wl.get() && serial1_speed.get() ){
-				if( forwardMsg( wlmsg, s1_tx_q ) ){
-					Serial::setRxTxNotifier( TX1_REQ );
-					// ESP_LOGI(FNAME,"Send to  device, TCP port 8882 received %d bytes", wlmsg.length() );
-				}
-			}
+		while( pullMsg( wl_aux_rx_q, wlmsg ) ){  // Port 8882 received data
 			if( rt_s2_wl.get() && serial2_speed.get() ){
 				if( forwardMsg( wlmsg, s2_tx_q ) ){
 					Serial::setRxTxNotifier( TX2_REQ );
-					ESP_LOGI(FNAME,"Send to S2 device, TCP port 8882 received %d bytes", wlmsg.length() );
+					// ESP_LOGI(FNAME,"Send to S2 device, TCP port 8882 received %d bytes", wlmsg.length() );
 				}
 			}
 			Protocols::parseNMEA( wlmsg.c_str() );
@@ -296,7 +274,7 @@ void Router::routeWLAN(){
 
 // route messages from Bluetooth
 void Router::routeBT(){
-	if( wireless != WL_BLUETOOTH )
+	if( (wireless != WL_BLUETOOTH) && (wireless != WL_BLUETOOTH_LE) )
 		return;
 	SString bt;
 	while( pullMsg( bt_rx_q, bt ) ){
@@ -344,7 +322,7 @@ void Router::routeCAN(){
 					// ESP_LOGI(FNAME, "Send to S2 device, can link received %d NMEA bytes", can.length());
 				}
 			}
-			if( rt_wl_can.get() && (wireless == WL_BLUETOOTH) ) {
+			if( rt_wl_can.get() && ((wireless == WL_BLUETOOTH) || (wireless == WL_BLUETOOTH_LE)) ) {
 				if( forwardMsg( can, bt_tx_q )) {
 					// ESP_LOGI(FNAME,"Send to BT device, can link received %d NMEA bytes", can.length() );
 				}

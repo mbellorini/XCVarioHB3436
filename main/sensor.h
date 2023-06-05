@@ -18,6 +18,8 @@
 #include "canbus.h"
 #include "CenterAid.h"
 #include "vector_3d.h"
+#include "BMPVario.h"
+#include "AirspeedSensor.h"
 
 // Display 4 Wire SPI and Display CS
 #define RESET_Display  GPIO_NUM_5       // Reset pin for Display
@@ -45,12 +47,13 @@ typedef struct global_flags{
 } t_global_flags;
 
 extern t_global_flags gflags;
-
+extern BMPVario bmpVario;
 extern CANbus* CAN;
 extern StraightWind theWind;
 extern xSemaphoreHandle xMutex;
 extern int active_screen;
 extern CenterAid *centeraid;
+extern AirspeedSensor *asSensor;
 
 extern SetupMenu  *Menu;
 extern xSemaphoreHandle display_mutex;

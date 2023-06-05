@@ -106,7 +106,7 @@ private:
 	static float old_polar_sink;
 	static float flt_altitude;
 
-	static char last_s[20];
+	static int last_avg;
 	static int  x_start;
 	static PolarIndicator* indicator;
 	static temp_status_t siliconTempStatusOld;
@@ -144,6 +144,7 @@ private:
 	static bool drawSpeed(float speed, int16_t x, int16_t y, bool dirty, bool inc_unit=false);
 	static void drawLegend( bool onlyLines=false );
 	static void drawAvgVario( int16_t x, int16_t y, float ate );
+	static void drawNetto( int16_t x, int16_t y, bool netto );
 };
 
 

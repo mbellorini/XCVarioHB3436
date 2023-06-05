@@ -19,6 +19,19 @@ public:
 		return 0;
 	};
 
+	static float Distance( float d ){
+		if( dst_unit.get() == DST_UNIT_KM ) // km/h
+			return( d );
+		else if( dst_unit.get() == DST_UNIT_FT ) // ft
+			return( d*3.28084 );
+		else if( dst_unit.get() == DST_UNIT_MILES ) // mi
+			return( d*0.621371 );
+		else
+			ESP_LOGE(FNAME,"Wrong unit for Distance");
+		return d;
+	};
+
+
 	static int AirspeedRounded( float as ){
         float ret = 0;
 		if( ias_unit.get() == SPEED_UNIT_KMH ) { // km/h
@@ -200,7 +213,7 @@ public:
 		if( vario_unit.get() == VARIO_UNIT_MS )
 			return("m/s");
 		else if( vario_unit.get() == VARIO_UNIT_FPM )
-			return("cft/m");
+			return("ft/m");
 		else if( vario_unit.get() == VARIO_UNIT_KNOTS )
 			return("kt");
 		else
@@ -277,6 +290,34 @@ public:
 			return( "FL" );
 		else
 			ESP_LOGE(FNAME,"Wrong unit for altitude %d", u );
+		return "nan";
+	};
+
+	static const char * AltitudeUnitMeterOrFeet( int unit = -1 ){
+		int u=unit;
+		if( u == -1 )
+			u=alt_unit.get();
+		if( u == ALT_UNIT_METER )  //m
+			return( "m" );
+		else if( u == ALT_UNIT_FT || u == ALT_UNIT_FL ) //feet
+			return( "ft" );
+		else
+			ESP_LOGE(FNAME,"Wrong unit for altitude %d", u );
+		return "nan";
+	};
+
+	static const char * DistanceUnit( int unit = -1 ){
+		int u=unit;
+		if( u == -1 )
+			u=dst_unit.get();
+		if( u == DST_UNIT_KM )      // kilometers km
+			return( "km" );
+		else if( u == DST_UNIT_FT ) // hundreds feet
+			return( "ft" );
+		else if( u == DST_UNIT_MILES ) // Miles mi
+			return( "mi" );
+		else
+			ESP_LOGE(FNAME,"Wrong unit for distance %d", u );
 		return "nan";
 	};
 

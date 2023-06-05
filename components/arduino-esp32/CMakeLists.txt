@@ -1,8 +1,6 @@
 set( src_dirs
-  "variants/esp32"
   "cores/esp32"
   "libraries/EEPROM/src"
-  "libraries/ESP32/src"
   "libraries/FFat/src"
   "libraries/FS/src"
   "libraries/Preferences/src"
@@ -12,6 +10,7 @@ set( src_dirs
   "libraries/Update/src"
   "libraries/Wire/src"
   "libraries/BluetoothSerial/src"
+  "libraries/BLE/src"
   )
 
 set( inc_dirs
@@ -28,6 +27,7 @@ set( inc_dirs
   "libraries/Update/src"
   "libraries/Wire/src"
   "libraries/BluetoothSerial/src"
+  "libraries/BLE/src"
   )
 
 

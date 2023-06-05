@@ -124,32 +124,39 @@ esp_err_t MPU::reset()
 	return ESP_OK;
 }
 
-int MPU::pi_control(int tick_count){
+int MPU::pi_control(int tick_count, float XCVTemp){
 	float temp = getTemperature();
+	float mpu_target_pwm = 7.0*(mpu_target_temp-XCVTemp)-30;
+	mpu_heat_pwm = mpu_target_pwm;
 	mpu_t_delta = temp - mpu_target_temp;
-	float mpu_t_delta_p = -mpu_t_delta*20.0;
-	mpu_heat_pwm = mpu_t_delta_p;             // P part
-	mpu_t_delta_i -= (mpu_t_delta)/3.0;	      // I part
-	if( mpu_t_delta_i > 255 )
-		mpu_t_delta_i = 255;
-	if( mpu_t_delta_i < 0 )
-		mpu_t_delta_i = 0;
+	float mpu_t_delta_p = -mpu_t_delta*100.0;     //	P control with Kp=100;
+	mpu_heat_pwm -= mpu_t_delta*100.0;            // P part
+	//To avoid damping of temperature correction, integral correction is only applied when pwm is close enougn to target pwm
+	// I control with Ki = 1
+	if (fabs(mpu_t_delta) < 0.5 ) {
+		mpu_t_delta_i -= (mpu_t_delta)*1.0;	      // I part
+		if( mpu_t_delta_i > 100 )
+			mpu_t_delta_i = 100;
+		if( mpu_t_delta_i < -100 )
+			mpu_t_delta_i = -100;
+	}
 	mpu_heat_pwm += mpu_t_delta_i;
-	if( mpu_heat_pwm > 255 )
-		mpu_heat_pwm = 255;
-	if( mpu_heat_pwm < 0 )
-		mpu_heat_pwm = 0;
-	// MPU_LOGI("MPU T: T=%.1f Delta= %.1f P=%.2f I=%.2f, PWM=%d", temp, mpu_t_delta, mpu_t_delta_p, mpu_t_delta_i, (int)rint(mpu_heat_pwm) );
+	if( mpu_heat_pwm >= 255.0 )
+		mpu_heat_pwm = 255.0;
+	if( mpu_heat_pwm <= 0.0 )
+		mpu_heat_pwm = 0.0;
 
-	if( !(tick_count%300) && abs(mpu_t_delta) > 1.0 ){
+	// MPU_LOGI("XCV T: %.1f MPU T: T=%.1f Delta= %.1f P=%.2f I=%.2f, PWM=%d", XCVTemp, temp, mpu_t_delta, mpu_t_delta_p, mpu_t_delta_i, (int)rint(mpu_heat_pwm) );
+
+	if( !(tick_count%30) && abs(mpu_t_delta) > 1.0 ){
 		MPU_LOGW("Warning MPU T deviation > 1°: T=%.1f Delta= %.1f P=%.2f I=%.2f, PWM=%d", temp, mpu_t_delta, mpu_t_delta_p, mpu_t_delta_i, (int)rint(mpu_heat_pwm) );
 	}
-	return mpu_heat_pwm;
+	return (uint32_t)rint(mpu_heat_pwm);
 }
 
-void MPU::temp_control(int count) {   // MPU temperature PI control
+void MPU::temp_control(int count, float xcvTemp ) {   // MPU temperature PI control
 	if( mpu_target_temp >= 0.0 ){     // MPU T = -1.0 switches off feature
-		int pwm=pi_control(count);
+		int pwm=pi_control(count, xcvTemp);
 		ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_1, pwm );
 		ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_1);
 	}
@@ -172,7 +179,14 @@ void MPU::pwm_init(){
 			.duty = 0, .hpoint = 0 };
 	ledc_channel_config(&pwm_ch);
 	ledc_timer_config(&pwm_timer);
+	temp_control( 0, 45.0 );
 }
+
+void MPU::clearpwm(){
+	gpio_set_direction(GPIO_NUM_2,GPIO_MODE_OUTPUT);
+	gpio_set_level(GPIO_NUM_2, 0 ); // heating off
+}
+
 
 /**
  * @brief Enable / disable sleep mode

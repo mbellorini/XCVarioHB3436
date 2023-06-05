@@ -45,6 +45,11 @@ void SetupMenuSelect::addEntry( const char* ent ) {
 #endif
 }
 
+void SetupMenuSelect::updateEntry( const char * ent, int num ) {
+	ESP_LOGI(FNAME,"updateEntry ent:%s  num:%d total%d", ent, num, _numval );
+	_values.at(num) = ent;
+}
+
 void SetupMenuSelect::setSelect( int sel ) {
 	_select = (int16_t)sel;
 	if( _nvs )
@@ -83,7 +88,7 @@ void SetupMenuSelect::delEntry( const char* ent ) {
 		}
 }
 
-SetupMenuSelect::SetupMenuSelect( const char* title, bool restart, int (*action)(SetupMenuSelect *p), bool save, SetupNG<int> *anvs, bool ext_handler, bool end_menu ) {
+SetupMenuSelect::SetupMenuSelect( const char* title, e_restart_mode_t restart, int (*action)(SetupMenuSelect *p), bool save, SetupNG<int> *anvs, bool ext_handler, bool end_menu ) {
 	// ESP_LOGI(FNAME,"SetupMenuSelect( %s ) action: %x", title, (int)action );
 	attach(this);
 	bits._ext_handler = ext_handler;
@@ -128,7 +133,9 @@ void SetupMenuSelect::display( int mode ){
 		ESP_LOGI(FNAME,"Title: %s ", _title );
 		ucg->printf("<< %s",_title);
 		xSemaphoreGive(spiMutex );
-		ESP_LOGI(FNAME,"select=%d numval=%d size=%d val=%s", _select, _numval, _values.size(), _values[_select] );
+		if( _select > _values.size() )
+			_select = _numval-1;
+		// ESP_LOGI(FNAME,"select=%d numval=%d size=%d val=%s", _select, _numval, _values.size(), _values[_select]  );
 		if( _numval > 9 ){
 			xSemaphoreTake(spiMutex,portMAX_DELAY );
 			ucg->setPrintPos( 1, 50 );
@@ -150,9 +157,10 @@ void SetupMenuSelect::display( int mode ){
 		if(mode == 1 && bits._save == true ){
 			xSemaphoreTake(spiMutex,portMAX_DELAY );
 			ucg->setColor( COLOR_BLACK );
-			ucg->drawBox( 0,280,240,40 );
+			ucg->drawBox( 1,280,240,40 );
 			ucg->setPrintPos( 1, 300 );
-			ucg->print("Saved" );
+			ucg->setColor( COLOR_WHITE );
+			ucg->print(PROGMEM"Saved" );
 			xSemaphoreGive(spiMutex );
 		}
 		if( mode == 1 )
@@ -222,9 +230,12 @@ void SetupMenuSelect::longPress(){
 void SetupMenuSelect::press(){
 	if( selected != this )
 		return;
-	ESP_LOGI(FNAME,"press() ext handler: %d press: %d _select: %d", bits._ext_handler, pressed, _select );
+	ESP_LOGI(FNAME,"press() ext handler: %d press: %d _select: %d selected %p", bits._ext_handler, pressed, _select, selected );
 	if ( pressed ){
-		display( 1 );
+		if( _select_save != _select )
+			display( 1 );
+		//else
+		//	display();
 		if( bits._end_menu ){
 			ESP_LOGI(FNAME,"press() end_menu");
 			selected = root;
@@ -244,10 +255,15 @@ void SetupMenuSelect::press(){
 			ESP_LOGI(FNAME,"calling action in press %d", _select );
 			(*_action)( this );
 		}
-		if( _select_save != _select )
-			if( bits._restart ) {
-				restart();
+		if( _select_save != _select ){
+			if( bits._restart == RST_ON_EXIT ) {
+				_restart = true;
+			}else if( bits._restart == RST_IMMEDIATE ){
+				_nvs->commit();
+				MenuEntry::restart();
 			}
+			_select_save = _select;
+		}
 		if( bits._end_menu ){
 			selected->press();
 		}

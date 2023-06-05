@@ -10,6 +10,8 @@ SPL06_007::SPL06_007( char _addr ){
 	errors = 0;
 	_praw = 0;
 	_traw = 0;
+	last_praw = 0;
+	last_traw = 0;
 }
 
 // Addr. 0x06 PM_RATE Bits 6-4:    110  - 64 measurements pr. sec.
@@ -149,16 +151,18 @@ double SPL06_007::get_temp_f()
 
 int32_t SPL06_007::get_traw( bool &ok )
 {
-	_traw = 0;
 	uint8_t data[3];
-	if ( !i2c_read_bytes( 0X03, 3, data ) )   // use correct method to read 3 bytes of volatile data
-		ok = false;
-	_traw = (data[0] << 8) | data[1];
-	_traw = (_traw << 8) | data[2];
-
-	if(_traw & (1 << 23))
-		_traw = _traw | 0XFF000000; // Set left bits to one for 2's complement conversion of negitive number
-	ok = true;
+	ok = i2c_read_bytes( 0X03, 3, data );   // use correct method to read 3 bytes of volatile data
+	if( ok ){
+		_traw = (data[0] << 16) | data[1] << 8 | data[2];
+		if(_traw & (1 << 23))
+			_traw = _traw | 0XFF000000; // Set left bits to one for 2's complement conversion of negative number
+	}
+	else{
+		ESP_LOGW(FNAME,"T raw read error, data: %02x%02x%02x", data[0],data[1],data[2] );
+		return last_traw;
+	}
+	last_traw = _traw;
 	return _traw;
 }
 
@@ -186,7 +190,7 @@ double SPL06_007::get_pcomp(bool &ok)
 	}
 	if( !ok ){
 		ESP_LOGE(FNAME,"Sensor temp and pressure ready bits not set %02x", status );
-		return 0;
+		return last_p;
 	}
 	if( i>0 ){
 		ESP_LOGW(FNAME,"Sensor temp and pressure ready bits took %d attempts", i );
@@ -194,10 +198,8 @@ double SPL06_007::get_pcomp(bool &ok)
 
 	double traw_sc = get_traw_sc( ok_t );
 	double praw_sc = get_praw_sc( ok_p );
-	if( !ok_t || !ok_t ){
-		ok = false;
+	if( !ok_t || !ok_p ){
 		ESP_LOGW(FNAME,"T %d or P %d reading returned false", ok_t, ok_p );
-		return 0;
 	}
 	double p = double(c00) + praw_sc * (double(c10) + praw_sc * (double(c20) + praw_sc * double(c30))) + traw_sc * double(c01) + traw_sc * praw_sc * ( double(c11) + praw_sc * double(c21));
 	// if( address == 0x76 ) {
@@ -205,6 +207,7 @@ double SPL06_007::get_pcomp(bool &ok)
 	// 	ESP_LOGI(FNAME,"P:%06x,%d  T:%06x PC:%f T:%f I2C E:%d",_praw, _praw, _traw, p/100, t , errors );
 	// }
 	ok = true;
+	last_p = p;
 	return p;
 }
 
@@ -270,25 +273,24 @@ double SPL06_007::get_scale_factor( int reg )
 // #define RANDOM_TEST
 
 
-static int32_t last_praw=0;
-
 int32_t SPL06_007::get_praw( bool &ok )
 {
-	_praw = 0;
 	uint8_t data[3];
-	if( !i2c_read_bytes( 0X00, 3, data ) ){
-		ESP_LOGW(FNAME,"P raw read error, data: %02x%02x%02x", data[0],data[1],data[2] );
-		ok = false;
-		return last_praw;
-	}
+	ok = i2c_read_bytes( 0X00, 3, data );
+	if( ok )
+	{
 #ifdef RANDOM_TEST
-	data[2] = esp_random() % 255;
-	data[1] = esp_random() % 255;
+		data[2] = esp_random() % 255;
+		data[1] = esp_random() % 255;
 #endif
-	_praw = (data[0] << 8) | data[1];
-	_praw = (_praw << 8) | data[2];
-	if(_praw & (1 << 23)){
-		_praw = _praw | 0XFF000000; // Set left bits to one for 2's complement conversion of negitive number
+		_praw = data[0] << 16 | data[1] << 8 | data[2];
+		if(_praw & (1 << 23)){
+			_praw = _praw | 0XFF000000; // Set left bits to one for 2's complement conversion of negative number
+		}
+	}
+	else{
+		ESP_LOGW(FNAME,"P raw read error, data: %02x%02x%02x", data[0],data[1],data[2] );
+		return last_praw;
 	}
 #ifdef I2C_ISSUE_TEST
 	if( address == 0x76 ){
@@ -298,33 +300,26 @@ int32_t SPL06_007::get_praw( bool &ok )
 		last_praw = _praw;
 	}
 #endif
-	ok = true;
+	last_praw = _praw;
 	return _praw;
 }
 
 int16_t SPL06_007::get_c0()
 {
-	uint8_t tmp_MSB,tmp_LSB;
-	tmp_MSB = i2c_read_uint8( 0X10);
-	tmp_LSB = i2c_read_uint8( 0X11);
-	tmp_LSB = tmp_LSB >> 4;
-	c0 = (tmp_MSB << 4) | tmp_LSB;
-
+	uint8_t bytes[2];
+	i2c_read_bytes( 0x10, 2, bytes );
+	c0 = (bytes[0] << 4) | (bytes[1] >> 4);
 	if(c0 & (1 << 11)) // Check for 2's complement negative number
 		c0 = c0 | 0XF000; // Set left bits to one for 2's complement conversion of negitive number
 	return c0;
 }
 
-
 int16_t SPL06_007::get_c1()
 {
-	uint8_t tmp_MSB,tmp_LSB;
-	tmp_MSB = i2c_read_uint8( 0X11);
-	tmp_LSB = i2c_read_uint8( 0X12);
-	tmp_MSB = tmp_MSB & 0XF;
-
-	c1 = (tmp_MSB << 8) | tmp_LSB;
-
+	uint8_t bytes[2];
+	i2c_read_bytes( 0x11, 2, bytes );
+	bytes[0] = bytes[0] & 0XF;
+	c1 = (bytes[0] << 8) | bytes[1];
 	if(c1 & (1 << 11)) // Check for 2's complement negative number
 		c1 = c1 | 0XF000; // Set left bits to one for 2's complement conversion of negitive number
 	return c1;
@@ -332,39 +327,26 @@ int16_t SPL06_007::get_c1()
 
 int32_t SPL06_007::get_c00()
 {
-	int32_t tmp;
-	uint8_t tmp_MSB,tmp_LSB,tmp_XLSB;
-
-	tmp_MSB = i2c_read_uint8( 0X13);
-	tmp_LSB = i2c_read_uint8( 0X14);
-	tmp_XLSB = i2c_read_uint8( 0X15);
-
-	tmp_XLSB = tmp_XLSB >> 4;
-	tmp = (tmp_MSB << 8) | tmp_LSB;
-	tmp = (tmp << 4) | tmp_XLSB;
-	tmp = (uint32_t)tmp_MSB << 12 | (uint32_t)tmp_LSB << 4 | (uint32_t)tmp_XLSB >> 4;
-	if(tmp & (1 << 19))
-		tmp = tmp | 0XFFF00000; // Set left bits to one for 2's complement conversion of negitive number
-	return tmp;
+	int32_t ret;
+	uint8_t bytes[4];
+	i2c_read_bytes( 0x13, 3, bytes );
+	bytes[2] = bytes[2] >> 4;
+	ret = (uint32_t)bytes[0] << 12 | (uint32_t)bytes[1] << 4 | (uint32_t)bytes[2];
+	if(ret & (1 << 19))
+		ret = ret | 0XFFF00000; // Set left bits to one for 2's complement conversion of negitive number
+	return ret;
 }
 
 int32_t SPL06_007::get_c10()
 {
-	int32_t tmp;
-	uint8_t tmp_MSB,tmp_LSB,tmp_XLSB;
-
-	tmp_MSB = i2c_read_uint8( 0X15); // 4 bits
-	tmp_LSB = i2c_read_uint8( 0X16); // 8 bits
-	tmp_XLSB = i2c_read_uint8( 0X17); // 8 bits
-	tmp_MSB = tmp_MSB & 0b00001111;
-
-	tmp = (tmp_MSB << 4) | tmp_LSB;
-	tmp = (tmp << 8) | tmp_XLSB;
-	tmp = (uint32_t)tmp_MSB << 16 | (uint32_t)tmp_LSB << 8 | (uint32_t)tmp_XLSB;
-
-	if(tmp & (1 << 19))
-		tmp = tmp | 0XFFF00000; // Set left bits to one for 2's complement conversion of negitive number
-	return tmp;
+	int32_t ret;
+	uint8_t bytes[4];
+	i2c_read_bytes( 0x15, 3, bytes );
+	bytes[0] = bytes[0] & 0b00001111;
+	ret = (uint32_t)bytes[0] << 16 | (uint32_t)bytes[1] << 8 | (uint32_t)bytes[2];
+	if(ret & (1 << 19))
+		ret = ret | 0XFFF00000; // Set left bits to one for 2's complement conversion of negitive number
+	return ret;
 }
 
 int16_t SPL06_007::get_16bit( uint8_t addr )
@@ -382,7 +364,6 @@ void SPL06_007::i2c_write_uint8( uint8_t eeaddress, uint8_t data )
 		ESP_LOGE(FNAME,"Error I2C write, status :%d", err );
 		errors++;
 	}
-
 }
 
 bool SPL06_007::i2c_read_bytes( uint8_t eeaddress, int num, uint8_t *data )

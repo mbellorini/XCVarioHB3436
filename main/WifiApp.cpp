@@ -63,10 +63,11 @@ static sock_server_t XCVarioMS = { .txbuf = &can_tx_q,      .port=8884, .idle = 
 // char WifiApp::buffer[WIFI_BUFFER_SIZE];
 
 int  WifiApp::queueFull(){
-	if( !wl_vario_tx_q.isFull() || !can_tx_q.isFull() )
-		return 0;
-	else
+	// ESP_LOGI(FNAME, "WQF: %d", wl_vario_tx_q.isFull() );
+	if( wl_vario_tx_q.isFull() )
 		return 1;
+	else
+		return 0;
 }
 
 int WifiApp::create_socket( int port ){
@@ -140,7 +141,7 @@ void WifiApp::socket_server(void *setup) {
 			int size=400;
 			if( Flarm::bincom )
 				size=WIFI_BUFFER_SIZE-1;
-			char *buffer = (char*)malloc( WIFI_BUFFER_SIZE );
+			char buffer[WIFI_BUFFER_SIZE+1];
 			int	len = Router::pullBlock( *(config->txbuf), buffer, size );
 			if( len ){
 				// ESP_LOGI(FNAME, "port %d to sent %d: bytes, %s", config->port, len, buffer );
@@ -154,7 +155,7 @@ void WifiApp::socket_server(void *setup) {
 					buffer[0] = '\n';
 					len=1;
 					config->idle = 0;
-					ESP_LOGI(FNAME, "KEEP-ALIVE port %d", config->port );
+					// ESP_LOGI(FNAME, "KEEP-ALIVE port %d", config->port );
 				}
 			}
 			std::list<client_record_t>::iterator it;
@@ -200,7 +201,6 @@ void WifiApp::socket_server(void *setup) {
 						num_send = 0;
 				}
 			}
-			free( buffer );
 		}
 		Router::routeWLAN();
 		Router::routeCAN();

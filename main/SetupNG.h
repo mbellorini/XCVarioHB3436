@@ -31,6 +31,7 @@
 #include "Compass.h"
 #include "SetupCommon.h"
 #include "WifiApp.h"
+#include "ESP32NVS.h"
 
 
 /*
@@ -54,7 +55,7 @@ typedef enum e_display_style  { DISPLAY_AIRLINER, DISPLAY_RETRO, DISPLAY_UL } di
 typedef enum e_display_variant { DISPLAY_WHITE_ON_BLACK, DISPLAY_BLACK_ON_WHITE } display_variant_t;
 typedef enum e_s2f_type  { S2F_HW_SWITCH, S2F_HW_PUSH_BUTTON, S2F_HW_SWITCH_INVERTED } e_s2f_type;
 typedef enum e_serial_route_type { RT_XCVARIO, RT_WIRELESS, RT_S1, RT_S2, RT_CAN } e_serial_routing_t;
-typedef enum e_wireless_type { WL_DISABLE, WL_BLUETOOTH, WL_WLAN_MASTER, WL_WLAN_CLIENT, WL_WLAN_STANDALONE } e_wireless_t;
+typedef enum e_wireless_type { WL_DISABLE, WL_BLUETOOTH, WL_WLAN_MASTER, WL_WLAN_CLIENT, WL_WLAN_STANDALONE, WL_BLUETOOTH_LE } e_wireless_t;
 typedef enum e_audiomode_type { AM_VARIO, AM_S2F, AM_SWITCH, AM_AUTOSPEED, AM_EXTERNAL, AM_FLAP, AM_AHRS } e_audiomode_t;
 typedef enum e_audio_tone_mode { ATM_SINGLE_TONE, ATM_DUAL_TONE } e_audio_tone_mode_t;
 typedef enum e_audio_chopping_style { AUDIO_CHOP_SOFT, AUDIO_CHOP_HARD } e_audio_chopping_style_t;
@@ -73,6 +74,7 @@ typedef enum e_wind_logging { WLOG_DISABLE, WLOG_WIND, WLOG_GYRO_MAG, WLOG_BOTH 
 typedef enum e_unit_type{ UNIT_NONE, UNIT_TEMPERATURE, UNIT_ALT, UNIT_SPEED, UNIT_VARIO, UNIT_QNH } e_unit_type_t;
 typedef enum e_temperature_unit { T_CELCIUS, T_FAHRENHEIT, T_KELVIN } e_temperature_unit_t;
 typedef enum e_alt_unit { ALT_UNIT_METER, ALT_UNIT_FT, ALT_UNIT_FL } e_alt_unit_t;
+typedef enum e_dst_unit { DST_UNIT_KM, DST_UNIT_FT, DST_UNIT_MILES } e_dst_unit_t;
 typedef enum e_speed_unit { SPEED_UNIT_KMH, SPEED_UNIT_MPH, SPEED_UNIT_KNOTS } e_speed_unit_t;
 typedef enum e_vario_unit { VARIO_UNIT_MS, VARIO_UNIT_FPM, VARIO_UNIT_KNOTS } e_vario_unit_t;
 typedef enum e_qnh_unit { QNH_HPA, QNH_INHG } e_qnh_unit_t;
@@ -93,23 +95,24 @@ typedef enum e_display_orientation { DISPLAY_NORMAL, DISPLAY_TOPDOWN } e_display
 typedef enum e_gear_warning_io { GW_OFF, GW_FLAP_SENSOR, GW_S2_RS232_RX, GW_FLAP_SENSOR_INV, GW_S2_RS232_RX_INV, GW_EXTERNAL }  e_gear_warning_io_t;
 typedef enum e_data_mon_mode { MON_MOD_ASCII, MON_MOD_BINARY } e_data_mon_mode_t;
 typedef enum e_hardware_rev { 	HW_UNKNOWN=0,
-								HW_LONG_VARIO=1,
-								XCVARIO_20=2,  // 1 RS232
-								XCVARIO_21=3,  // 2 RS232, AHRS
-								XCVARIO_22=4,  // 2 RS232, AHRS, CAN Bus,
-								XCVARIO_23=5   // 2 RS232, AHRS, CAN Bus, AHRS temperature control
+	HW_LONG_VARIO=1,
+	XCVARIO_20=2,  // 1 RS232
+	XCVARIO_21=3,  // 2 RS232, AHRS
+	XCVARIO_22=4,  // 2 RS232, AHRS, CAN Bus,
+	XCVARIO_23=5   // 2 RS232, AHRS, CAN Bus, AHRS temperature control
 } e_hardware_rev_t;        // XCVario-Num = hardware revision + 18
 typedef enum e_drawing_prio { DP_NEEDLE, DP_BACKGROUND } e_drawing_prio_t;
+typedef enum e_equalizer_type {  AUDIO_EQ_DISABLE, AUDIO_EQ_LS4, AUDIO_EQ_LS8, AUDIO_EQ_LSEXT } e_equalizer_type_t;
 
 const int baud[] = { 0, 4800, 9600, 19200, 38400, 57600, 115200 };
 void change_bal();
 
 typedef struct setup_flags{
 	bool _reset    :1;
-	bool _wait_ack :1;
 	bool _volatile :1;
 	uint8_t _sync  :2;
 	uint8_t _unit  :3;
+	bool _dirty    :1;
 } t_setup_flags;
 
 template<typename T>
@@ -145,9 +148,13 @@ public:
 		flags._reset = reset;
 		flags._sync = sync;
 		flags._volatile = vol;
-		flags._wait_ack = false;
 		flags._unit = unit;
+		flags._dirty = false;
 		_action = action;
+	}
+
+	virtual bool dirty() {
+		return flags._dirty;
 	}
 
 	virtual void setValueStr( const char * val ){
@@ -179,7 +186,9 @@ public:
 				t.z = z;
 				memcpy((char *)&_value, &t, sizeof(t) );
 			}
+			flags._dirty = true;
 		}
+
 	}
 
 	inline T* getPtr() {
@@ -194,6 +203,7 @@ public:
 	const char * key() {
 		return _key;
 	}
+
 	virtual T getGui() const { return get(); } // tb. overloaded for blackboard
 	virtual const char* unit() const { return ""; } // tb. overloaded for blackboard
 
@@ -233,7 +243,6 @@ public:
 			return( true );
 		}
 		_value = aval;
-
 		if ( dosync ) {
 			sync();
 		}
@@ -248,7 +257,9 @@ public:
 		if( flags._volatile == VOLATILE ){
 			return true;
 		}
-		return commit( false );
+		flags._dirty = true;
+		// ESP_LOGI(FNAME,"set() %s", _key );
+		return true;
 	}
 
 	e_unit_type_t unitType() {
@@ -259,7 +270,6 @@ public:
 		if( aval != _value ){
 			ESP_LOGI(FNAME,"sync to value client has acked");
 			_value = aval;
-			flags._wait_ack = false;
 		}
 	}
 
@@ -271,65 +281,43 @@ public:
 		if( SetupCommon::mustSync( flags._sync ) ){
 			// ESP_LOGI( FNAME,"Now sync %s", _key );
 			sendSetup( flags._sync, _key, typeName(), (void *)(&_value), sizeof( _value ) );
-			if( isMaster() && flags._sync == SYNC_BIDIR )
-				flags._wait_ack = true;
 			return true;
 		}
 		return false;
 	}
 
-	bool commit(bool dosync=true) {
-		ESP_LOGI(FNAME,"NVS commit(): ");
-		if( dosync )
-			sync();
-
+	bool commit() {
+		// ESP_LOGI(FNAME,"NVS commit(): %s ", _key );
 		if( flags._volatile != PERSISTENT ){
-			return true;
+				return true;
 		}
-        nvs_handle_t h = 0;
-		if( !open(h) ) {
+		write();
+		bool ret = NVS.commit();
+		if( !ret )
 			return false;
-		}
+		flags._dirty = false;
+		return true;
+	}
+
+	bool write() { // do the set blob that actually seems to write to the flash either
+		// ESP_LOGI(FNAME,"NVS write(): ");
 		char val[30];
 		value_str(val);
-		ESP_LOGI(FNAME,"NVS commit(key:%s, val: %s addr:%08x, len:%d, nvs_handle: %04x)", _key, val, (unsigned int)(&_value), sizeof( _value ), h);
-		esp_err_t err = nvs_set_blob(h, _key, (void *)(&_value), sizeof( _value ));
-		if(err != ESP_OK) {
-			ESP_LOGE(FNAME,"NVS set blob error %d", err );
-			close(h);
-			return( false );
-		}
-		if(lazyCommit) {
-            _dirty=true;
-            close(h);
-            return true;
-        }
-		err = nvs_commit(h);
-		close(h);
-		if(err != ESP_OK)  {
+		ESP_LOGI(FNAME,"NVS set blob(key:%s, val: %s, len:%d )", _key, val, sizeof( _value ) );
+		bool ret = NVS.setBlob( _key, (void *)(&_value), sizeof( _value ) );
+		if( !ret )
 			return false;
-		}
-		ESP_LOGI(FNAME,"success");
 		return true;
 	}
 
 	bool exists() {
 		if( flags._volatile != PERSISTENT ) {
-            return true;
-        }
-        nvs_handle_t h = 0;
-		if( !open(h) ) {
-			return false;
+			return true;
 		}
-		size_t required_size;
-		esp_err_t err = nvs_get_blob(h, _key, NULL, &required_size);
-        close(h);
-		if ( err != ESP_OK )
-			return false;
-		return true;
+		size_t size;
+		bool ret = NVS.getBlob(_key, NULL, &size);
+		return ret;
 	}
-
-
 
 	virtual bool init() {
 		if( flags._volatile != PERSISTENT ){
@@ -337,59 +325,52 @@ public:
 			set( _default );
 			return true;
 		}
-        nvs_handle_t h = 0;
-		if( !open(h) ) {
-			return false;
-		}
 		size_t required_size;
-		esp_err_t err = nvs_get_blob(h, _key, NULL, &required_size);
-		if ( err != ESP_OK ){
-			ESP_LOGE(FNAME, "%s: NVS nvs_get_blob error: returned error ret=%d", _key, err );
+		bool ret = NVS.getBlob(_key, NULL, &required_size);
+		if ( !ret ){
+			ESP_LOGE(FNAME, "%s: NVS nvs_get_blob error", _key );
 			set( _default );  // try to init
-			commit(false);
+			commit();
 		}
 		else {
+			// ESP_LOGI(FNAME,"NVS %s size: %d", _key, required_size );
 			if( required_size > sizeof( T ) ) {
 				ESP_LOGE(FNAME,"NVS error: size too big: %d > %d", required_size , sizeof( T ) );
 				erase();
 				set( _default );  // try to init
-				close(h);
 				return false;
 			}
 			else {
-				// ESP_LOGI(FNAME,"NVS size okay: %d", required_size );
-				err = nvs_get_blob(h, _key, &_value, &required_size);
-				if ( err != ESP_OK ){
-					ESP_LOGE(FNAME, "NVS nvs_get_blob returned error ret=%d", err );
+				// ESP_LOGI(FNAME,"NVS size okay");
+				ret = NVS.getBlob(_key, &_value, &required_size);
+
+				if ( !ret ){
+					ESP_LOGE(FNAME, "NVS nvs_get_blob returned error");
 					erase();
 					set( _default );  // try to init
-					commit(false);
+					commit();
 				}
 				else {
-					// ESP_LOGI(FNAME,"NVS key %s exists len: %d", _key, required_size );
+					// char val[30];
+					// value_str(val);
+					// ESP_LOGI(FNAME,"NVS key %s exists len: %d, value: %s", _key, required_size, val );
 				}
 			}
 		}
-		close(h);
 		return true;
 	}
-
 
 	virtual bool erase() {
 		if( flags._volatile != PERSISTENT ){
 			return true;
 		}
-        nvs_handle_t h = 0;
-		open(h);
-		esp_err_t err = nvs_erase_key(h, _key);
-		if(err != ESP_OK)
+		bool ret = NVS.erase(_key);
+		if( !ret ){
 			return false;
+		}
 		else {
-			ESP_LOGI(FNAME,"NVS erased %s by handle %d", _key, h );
-			if( set( _default ) )
-				return true;
-			else
-				return false;
+			ESP_LOGI(FNAME,"NVS erased key  %s", _key );
+			return set( _default );
 		}
 	}
 
@@ -404,7 +385,7 @@ public:
 			return false;
 	}
 
-    inline T getDefault() const { return _default; }
+	inline T getDefault() const { return _default; }
 	inline uint8_t getSync() { return flags._sync; }
 
 private:
@@ -453,6 +434,7 @@ extern SetupNG<int>  		s2f_switch_mode;
 extern SetupNG<int>  		chopping_mode;
 extern SetupNG<int>  		chopping_style;
 extern SetupNG<int>  		amplifier_shutdown;
+extern SetupNG<int>         audio_equalizer;
 
 extern SetupNG<int>  		wireless_type;
 extern SetupNG<float>  		wifi_max_power;
@@ -511,9 +493,10 @@ extern SetupNG<float>  		flap_minus_1;
 extern SetupNG<float>  		flap_0;
 extern SetupNG<float>  		flap_plus_1;
 extern SetupNG<float>  		flap_plus_2;
-extern SetupNG<int>  		alt_unit;
 extern SetupNG<int>  		alt_quantization;
 extern SetupNG<int>  		ias_unit;
+extern SetupNG<int>  		alt_unit;
+extern SetupNG<int>  		dst_unit;
 extern SetupNG<int>  		vario_unit;
 extern SetupNG<int>  		temperature_unit;
 extern SetupNG<int>  		qnh_unit;
@@ -556,6 +539,7 @@ extern SetupNG<int>		    attitude_indicator;
 extern SetupNG<int>		    ahrs_rpyl_dataset;
 extern SetupNG<int>		    ahrs_autozero;
 extern SetupNG<float>		ahrs_gyro_factor;
+extern SetupNG<float>		ahrs_dynamic_factor;
 extern SetupNG<int>		    display_style;
 extern SetupNG<int>		    display_variant;
 extern SetupNG<int>		    s2f_switch_type;

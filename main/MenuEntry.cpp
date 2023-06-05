@@ -29,6 +29,7 @@ MenuEntry* MenuEntry::root = 0;
 MenuEntry* MenuEntry::selected = 0;
 AnalogInput* MenuEntry::_adc = 0;
 PressureSensor *MenuEntry::_bmp = 0;
+bool MenuEntry::_restart = false;
 
 MenuEntry::~MenuEntry()
 {
@@ -59,7 +60,6 @@ void MenuEntry::restart(){
 	clear();
 	ucg->setPrintPos( 10, 50 );
 	ucg->print("...rebooting now" );
-	SetupCommon::commitNow();
 	delay(2000);
 	esp_restart();
 }

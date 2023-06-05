@@ -71,6 +71,10 @@ void polar_set(){
 	Speed2Fly.setPolar();
 }
 
+void polar_update_name(){
+	Polars::begin();
+}
+
 void modifyPolar() {
 	Speed2Fly.modifyPolar();
 }
@@ -88,15 +92,15 @@ int last_volume=0;
 
 void change_volume() {
 	int delta = (int)audio_volume.get() - last_volume;
-	if( delta != 0 ){
+	if( delta ){
 		if( delta > 0 ){
 			Audio::incVolume(delta);
 		}
-		if( delta < 0 ){
-			Audio::decVolume(abs(delta));
+		else if( delta < 0 ){
+			Audio::decVolume(-delta);
 		}
 		last_volume += delta;
-		ESP_LOGI(FNAME,"change_volume, delta=%d last_vol: %d", delta, last_volume );
+		// ESP_LOGI(FNAME,"change_volume, delta=%d last_vol: %d", delta, last_volume );
 	}
 }
 
@@ -134,7 +138,7 @@ SetupNG<float> 			polar_sink3( "POLAR_SINK3",    -2.24, true, SYNC_FROM_MASTER, 
 SetupNG<float> 			polar_max_ballast( "POLAR_MAX_BAL",  160, true, SYNC_FROM_MASTER, PERSISTENT, change_ballast );
 SetupNG<float> 			polar_wingarea( "POLAR_WINGAREA", 10.5, true, SYNC_FROM_MASTER, PERSISTENT, change_ballast );
 
-SetupNG<float>  		speedcal( "SPEEDCAL", 0.0 );
+SetupNG<float>  		speedcal( "SPEEDCAL", 0.0, true, SYNC_FROM_MASTER );
 SetupNG<float>  		vario_delay( "VARIO_DELAY", 3.0 );
 SetupNG<float>  		vario_av_delay( "VARIO_AV_DELAY", 20.0 );  // changed to 20 seconds (quasi standard) what equals to a half circle
 SetupNG<float>  		center_freq( "AUDIO_CENTER_F", 500.0, true, SYNC_FROM_MASTER  );
@@ -152,7 +156,7 @@ SetupNG<float>			crew_weight( "CREW_WGT", 80, true, SYNC_BIDIR, PERSISTENT, chan
 SetupNG<float>			gross_weight( "CREW_WGT", 350, true, SYNC_NONE, VOLATILE ); // derived from above
 SetupNG<float>  		bugs( "BUGS", 0.0, true, SYNC_BIDIR, VOLATILE, modifyPolar  );
 
-SetupNG<int>  			cruise_mode( "CRUISE", 0, true, SYNC_BIDIR, VOLATILE );
+SetupNG<int>  			cruise_mode( "CRUISE", 0, RST_NONE, SYNC_BIDIR, VOLATILE );
 SetupNG<float>  		OAT( "OAT", DEVICE_DISCONNECTED_C, true, SYNC_FROM_MASTER, VOLATILE );   // outside temperature
 SetupNG<float>  		swind_dir( "SWDD", 0.0, true, SYNC_FROM_MASTER, VOLATILE, resetSWindAge );
 SetupNG<float>  		swind_speed( "SWDS", 0.0, true, SYNC_FROM_MASTER, VOLATILE, resetSWindAge );
@@ -179,6 +183,7 @@ SetupNG<int>  			s2f_switch_mode( "AUDIO_MODE" ,  3 );
 SetupNG<int>  			chopping_mode( "CHOPPING_MODE",  VARIO_CHOP );
 SetupNG<int>  			chopping_style( "CHOP_STYLE",  AUDIO_CHOP_SOFT );
 SetupNG<int>  			amplifier_shutdown( "AMP_DIS", 0 );
+SetupNG<int>            audio_equalizer( "AUD_EQ" , AUDIO_EQ_LS4 );
 
 SetupNG<int>  			wireless_type( "BT_ENABLE" ,  WL_BLUETOOTH );
 SetupNG<float>  		wifi_max_power( "WIFI_MP" ,  50);
@@ -189,7 +194,7 @@ SetupNG<int>  			fl_auto_transition( "FL_AUTO" , 0 );
 SetupNG<int>  			alt_display_mode( "ALT_DISP_MODE" , MODE_QNH );
 SetupNG<float>  		transition_alt( "TRANS_ALT", 50 );   // Transition Altitude
 SetupNG<int>  			glider_type( "GLIDER_TYPE", 0, true, SYNC_FROM_MASTER, PERSISTENT,  polar_set );
-SetupNG<int>  			glider_type_index( "GLIDER_TYPE_IDX", 0, true, SYNC_FROM_MASTER );
+SetupNG<int>  			glider_type_index( "GLIDER_TYPE_IDX", 0, true, SYNC_FROM_MASTER, PERSISTENT, polar_update_name );
 SetupNG<int>  			ps_display( "PS_DISPLAY", 1 );
 
 SetupNG<float>  		as_offset( "AS_OFFSET" , -1 );
@@ -208,7 +213,7 @@ SetupNG<float>  		frequency_response( "FREQ_RES", 30.0 );
 SetupNG<float>  		s2f_deadband( "DEADBAND_S2F", 10.0, true, SYNC_BIDIR, PERSISTENT, 0, UNIT_SPEED );
 SetupNG<float>  		s2f_deadband_neg( "DB_S2F_NEG", -10.0, true, SYNC_BIDIR, PERSISTENT, 0, UNIT_SPEED );
 SetupNG<float>  		s2f_delay( "S2F_DELAY", 5.0, true, SYNC_BIDIR );
-SetupNG<float>  		factory_volt_adjust("FACT_VOLT_ADJ" , 0.00815, false );
+SetupNG<float>  		factory_volt_adjust("FACT_VOLT_ADJ" , 0.00815, RST_NONE );
 
 SetupNG<int>  			display_type( "DISPLAY_TYPE",  UNIVERSAL );
 SetupNG<int>  			display_orientation("DISPLAY_ORIENT" , DISPLAY_NORMAL );
@@ -224,25 +229,26 @@ SetupNG<int>  			alt_quantization( "ALT_QUANT", ALT_QUANT_10 );
 SetupNG<int>  			ias_unit( "IAS_UNIT", SPEED_UNIT_KMH );
 SetupNG<int>  			vario_unit( "VARIO_UNIT", VARIO_UNIT_MS );
 SetupNG<int>  			temperature_unit( "TEMP_UNIT", T_CELCIUS );
+SetupNG<int>  			dst_unit( "DST_UNIT", DST_UNIT_KM );
 SetupNG<int>  			qnh_unit("QNH_UNIT", QNH_HPA );
 SetupNG<int>  			rot_default( "ROTARY_DEFAULT", 0 );
 SetupNG<int>  			serial1_speed( "SERIAL2_SPEED", 3 );   // tag will stay SERIAL2 from historical reason
 SetupNG<int>  			serial1_pins_twisted( "SERIAL2_PINS", 0 );
 SetupNG<int>  			serial1_rxloop( "SERIAL2_RXLOOP", 0 );
 SetupNG<int>  			serial1_tx( "SERIAL2_TX", (1UL << RT_XCVARIO) | (1UL << RT_WIRELESS) );   //  Default Wireless and local XCVario for Flarm Warnings, bincom
-SetupNG<int>  			rt_s1_xcv( "S2_TX_XCV", 1, false, SYNC_NONE, VOLATILE  );
-SetupNG<int>  			rt_s1_wl( "S2_TX_WL", 1, false, SYNC_NONE, VOLATILE );
-SetupNG<int>  			rt_s1_s2( "S2_TX_S2", 0, false, SYNC_NONE, VOLATILE );
-SetupNG<int>  			rt_s1_can( "S2_TX_CAN", 0, false, SYNC_NONE, VOLATILE );
+SetupNG<int>  			rt_s1_xcv( "S2_TX_XCV", 1, RST_NONE, SYNC_NONE, VOLATILE  );
+SetupNG<int>  			rt_s1_wl( "S2_TX_WL", 1, RST_NONE, SYNC_NONE, VOLATILE );
+SetupNG<int>  			rt_s1_s2( "S2_TX_S2", 0, RST_NONE, SYNC_NONE, VOLATILE );
+SetupNG<int>  			rt_s1_can( "S2_TX_CAN", 0, RST_NONE, SYNC_NONE, VOLATILE );
 SetupNG<int>  			serial1_tx_inverted( "SERIAL2_TX_INV", RS232_INVERTED );
 SetupNG<int>  			serial1_rx_inverted( "SERIAL2_RX_INV", RS232_INVERTED );
 SetupNG<int>  			serial1_tx_enable( "SER1_TX_ENA", 1 );
 SetupNG<int>  			serial2_speed( "SERIAL1_SPEED", 3 );
 SetupNG<int>  			serial2_pins_twisted( "SERIAL1_PINS", 0 );
 SetupNG<int>  			serial2_tx( "SERIAL1_TX", (1UL << RT_XCVARIO) | (1UL << RT_WIRELESS) );     //  BT device and XCVario, Serial2 is foreseen for Protocols or Kobo
-SetupNG<int>  			rt_s2_xcv( "S1_TX_XCV", 1, false, SYNC_NONE, VOLATILE );
-SetupNG<int>  			rt_s2_wl( "S1_TX_WL", 0, false, SYNC_NONE, VOLATILE );
-SetupNG<int>  			rt_s2_can( "S1_TX_CAN", 0,false, SYNC_NONE, VOLATILE );
+SetupNG<int>  			rt_s2_xcv( "S1_TX_XCV", 1, RST_NONE, SYNC_NONE, VOLATILE );
+SetupNG<int>  			rt_s2_wl( "S1_TX_WL", 0, RST_NONE, SYNC_NONE, VOLATILE );
+SetupNG<int>  			rt_s2_can( "S1_TX_CAN", 0,RST_NONE, SYNC_NONE, VOLATILE );
 SetupNG<int>  			serial2_tx_inverted( "SERIAL1_TX_INV", RS232_INVERTED );
 SetupNG<int>  			serial2_rx_inverted( "SERIAL1_RX_INV", RS232_INVERTED );
 SetupNG<int>  			serial2_tx_enable( "SER2_TX_ENA", 1 );
@@ -264,14 +270,15 @@ SetupNG<int>		    attitude_indicator("AHRS", 1 );
 SetupNG<int>		    ahrs_rpyl_dataset("RPYL", 0 );
 SetupNG<int>		    ahrs_autozero("AHRSAZ", 0 );
 SetupNG<float>		    ahrs_gyro_factor("AHRSGF", 90 );
+SetupNG<float>		    ahrs_dynamic_factor("AHRDYN", 5 );
 SetupNG<int>		    display_style("DISPLAY_STYLE", 1 );
 SetupNG<int>		    s2f_switch_type("S2FHWSW", S2F_HW_SWITCH );
 SetupNG<int>		    hardwareRevision("HWREV", HW_UNKNOWN );
-SetupNG<int>		    ahrs_licence_dig1("AHRS_LIC_1_2", 0, false );
-SetupNG<int>		    ahrs_licence_dig2("AHRS_LIC_2", 0, false );
-SetupNG<int>		    ahrs_licence_dig3("AHRS_LIC_3", 0, false );
-SetupNG<int>		    ahrs_licence_dig4("AHRS_LIC_4", 0, false );
-SetupNG<int>		    dummy("DUMMY", 0, false );
+SetupNG<int>		    ahrs_licence_dig1("AHRS_LIC_1_2", 0 );
+SetupNG<int>		    ahrs_licence_dig2("AHRS_LIC_2", 0 );
+SetupNG<int>		    ahrs_licence_dig3("AHRS_LIC_3", 0 );
+SetupNG<int>		    ahrs_licence_dig4("AHRS_LIC_4", 0 );
+SetupNG<int>		    dummy("DUMMY", 0 );
 SetupNG<int>		    wk_sens_pos_plus_3("WKSP3", 1000);
 SetupNG<int>		    wk_sens_pos_plus_2("WKSP2", 1500);
 SetupNG<int>		    wk_sens_pos_plus_1("WKSP1", 2000);
@@ -284,7 +291,7 @@ SetupNG<float>			stall_speed( "STALL_SPEED", 70, true, SYNC_FROM_MASTER, PERSIST
 SetupNG<int>            flarm_warning( "FLARM_LEVEL", 1 );
 SetupNG<int>            flarm_sim( "FLARM_SIM", 0 );
 SetupNG<float>          flarm_volume( "FLARM_VOL", 100 );
-SetupNG<int>            flap_sensor( "FLAP_SENS", 0, false, SYNC_FROM_MASTER, PERSISTENT, flap_act);
+SetupNG<int>            flap_sensor( "FLAP_SENS", 0, RST_NONE, SYNC_FROM_MASTER, PERSISTENT, flap_act);
 SetupNG<float>          flap_pos_max("FL_POS_M", +2, true, SYNC_FROM_MASTER, PERSISTENT, flap_act);
 SetupNG<float>          flap_neg_max("FL_NEG_M", -2, true, SYNC_FROM_MASTER, PERSISTENT, flap_act);
 SetupNG<int>            compass_enable( "CP_ENABLE", 0 );
@@ -328,14 +335,14 @@ SetupNG<int>			s2f_arrow_color("S2F_ARRCOL", AC_WHITE_WHITE );
 SetupNG<int> 			wk_label_plus_3( "WKLP3", 41,  true, SYNC_FROM_MASTER, PERSISTENT, flap_act);  //  L
 SetupNG<int> 			wk_label_plus_2( "WKLP2", 11,  true, SYNC_FROM_MASTER, PERSISTENT, flap_act);  //  2
 SetupNG<int> 			wk_label_plus_1( "WKLP1", 10,  true, SYNC_FROM_MASTER, PERSISTENT, flap_act);  //  1
-SetupNG<int> 			wk_label_null_0( "WKL0",   9,  true,SYNC_FROM_MASTER, PERSISTENT, flap_act);  //  0
-SetupNG<int> 			wk_label_minus_1( "WKLM1", 8,  true,SYNC_FROM_MASTER, PERSISTENT, flap_act);  // -1
-SetupNG<int> 			wk_label_minus_2( "WKLM2", 7,  true,SYNC_FROM_MASTER, PERSISTENT, flap_act);  // -2
+SetupNG<int> 			wk_label_null_0( "WKL0",   9,  true, SYNC_FROM_MASTER, PERSISTENT, flap_act);  //  0
+SetupNG<int> 			wk_label_minus_1( "WKLM1", 8,  true, SYNC_FROM_MASTER, PERSISTENT, flap_act);  // -1
+SetupNG<int> 			wk_label_minus_2( "WKLM2", 7,  true, SYNC_FROM_MASTER, PERSISTENT, flap_act);  // -2
 SetupNG<int> 			wk_label_minus_3( "WKLM3", 42,  true, SYNC_FROM_MASTER, PERSISTENT, flap_act); //  S
 SetupNG<float>       	flap_takeoff("FLAPTO", 1,  true, SYNC_FROM_MASTER);
 SetupNG<int> 			audio_disable( "AUDIS", 0 );
 SetupNG<int>			vario_mode("VAMOD", CRUISE_NETTO );  // switch to netto mode when cruising
-SetupNG<int>			airspeed_sensor_type("PTYPE", PS_NONE, false);
+SetupNG<int>			airspeed_sensor_type("PTYPE", PS_NONE, RST_NONE);
 SetupNG<int>			cruise_audio_mode("CAUDIO", 0 );
 SetupNG<int>			netto_mode("NETMOD", NETTO_RELATIVE );  // regard polar sink
 SetupNG<float>			v_max("VMAX", 270, true, SYNC_FROM_MASTER, PERSISTENT, 0, UNIT_SPEED  );
@@ -364,9 +371,9 @@ SetupNG<float> 			master_xcvario( "MSXCV", 0 );
 SetupNG<int> 			master_xcvario_lock( "MSXCVL", 0 );
 SetupNG<int> 			menu_long_press("MENU_LONG", 0 );
 SetupNG<int> 			menu_screens("MENU_SCR", 0 );
-SetupNG<int> 			screen_gmeter("SCR_GMET", 0, false, SYNC_NONE, VOLATILE );
-SetupNG<int> 			screen_flarm("SCR_FLARM", 0, false, SYNC_NONE, VOLATILE );
-SetupNG<int> 			screen_centeraid("SCR_CA", 0, false, SYNC_NONE  );
+SetupNG<int> 			screen_gmeter("SCR_GMET", 0, RST_NONE, SYNC_NONE, VOLATILE );
+SetupNG<int> 			screen_flarm("SCR_FLARM", 0, RST_NONE, SYNC_NONE, VOLATILE );
+SetupNG<int> 			screen_centeraid("SCR_CA", 0, RST_NONE, SYNC_NONE  );
 SetupNG<int> 			data_monitor("DATAMON", MON_OFF, true, SYNC_NONE, VOLATILE  );
 SetupNG<int> 			data_monitor_mode("DATAMONM", MON_MOD_ASCII, true, SYNC_NONE, VOLATILE  );
 SetupNG<t_bitfield_compass>  calibration_bits("CALBIT", { 0,0,0,0,0,0 } );
@@ -378,4 +385,5 @@ mpud::raw_axes_t zero_bias;
 SetupNG<mpud::raw_axes_t>	gyro_bias("GYRO_BIAS", zero_bias );
 SetupNG<mpud::raw_axes_t>	accl_bias("ACCL_BIAS", zero_bias );
 SetupNG<float>              mpu_temperature("MPUTEMP", 45.0, true, SYNC_FROM_MASTER, PERSISTENT, chg_mpu_target );    // default for AHRS chip temperature (XCV 2023)
+
 
