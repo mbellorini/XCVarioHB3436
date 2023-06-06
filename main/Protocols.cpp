@@ -86,6 +86,16 @@ void Protocols::sendNmeaHDT( float heading ) {
 	Router::sendXCV(str);
 }
 
+void Protocols::sendNmeaPBELB( float empty_kg, float crew_kg, float water_kg, float max_ballast_kg, float wingarea_m2 ) {
+	char str[40];
+	sprintf( str,"$PBELB,%1.0f,%1.0f,%1.0f,%1.0f,%1.2f", empty_kg, crew_kg, water_kg, max_ballast_kg, wingarea_m2);
+
+	int cs = calcNMEACheckSum(&str[1]);
+	int i = strlen(str);
+	sprintf( &str[i], "*%02X\r\n", cs );
+	Router::sendXCV(str);
+}
+
 void Protocols::sendItem( const char *key, char type, void *value, int len, bool ack ){
 	if( Flarm::bincom )  // do not sent to client in case
 		return;
