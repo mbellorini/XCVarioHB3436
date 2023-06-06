@@ -487,6 +487,7 @@ static void toyFeed()
 	if( nmea_protocol.get() == BORGELT ) {
 		OV.sendNMEA( P_BORGELT, lb, baroP, dynamicP, te_vario.get(), OAT.get(), ias.get(), tas, MC.get(), bugs.get(), ballast.get(), Switch::getCruiseState(), altSTD, gflags.validTemperature  );
 		OV.sendNMEA( P_GENERIC, lb, baroP, dynamicP, te_vario.get(), OAT.get(), ias.get(), tas, MC.get(), bugs.get(), ballast.get(), Switch::getCruiseState(), altSTD, gflags.validTemperature  );
+		OV.sendNmeaPBELB(empty_weight.get(), crew_weight.get(), ballast_kg.get(), polar_max_ballast.get(), polar_wingarea.get(), ias.get(), audio_volume.get());
 	}
 	else if( nmea_protocol.get() == OPENVARIO ){
 		OV.sendNMEA( P_OPENVARIO, lb, baroP, dynamicP, te_vario.get(), OAT.get(), ias.get(), tas, MC.get(), bugs.get(), ballast.get(), Switch::getCruiseState(), altitude.get(), gflags.validTemperature  );
@@ -1016,14 +1017,22 @@ void system_startup(void *args){
 		wireless_id="WLAN SID: ";
 	wireless_id += SetupCommon::getID();
 	display->writeText(line++, wireless_id.c_str() );
+
+  // License bought for HB-3436, Order #2840, this code stopped the xcvario from booting
+  gflags.ahrsKeyValid = true;
+
+  /*
+  License bought for HB-3436, Order #2840, this code stopped the xcvario from booting
 	Cipher::begin();
 	if( Cipher::checkKeyAHRS() ){
 		ESP_LOGI( FNAME, "AHRS key valid=%d", gflags.ahrsKeyValid );
-	}else{
+	}else
+	{
 		ESP_LOGI( FNAME, "AHRS key invalid=%d, disable AHRS Sensor", gflags.ahrsKeyValid );
 		if( attitude_indicator.get() )
 			attitude_indicator.set(0);
 	}
+	*/
 
 	ESP_LOGI(FNAME,"Airspeed sensor init..  type configured: %d", airspeed_sensor_type.get() );
 	int offset;

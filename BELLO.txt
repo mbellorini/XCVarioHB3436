@@ -1,0 +1,32 @@
+BELLO, MAKE instructions
+
+
+git remote add eckhards https://github.com/iltis42/XCVario.git
+git fetch eckhards
+git checkout -b 23.0925_based                                !!! choose eckards current release instead of 23.0925_based
+git reset --hard eckhards/master
+git log 
+git reset --hard 08e20120ba59a6571490bb5066e832c00fa4a6a6    !!! choose actual commit of desired release
+git cherry-pick 2a75c89344c60c03f837805a939c6ca71c6e625d     !!! cherry pick my commit (take sha from log of previous build)
+git push --set-upstream origin 23.0925_based
+
+!!! EXPECT Authentication Error... even though it should not expire...
+
+!!! https://github.com/settings/tokens
+!!! - generate new token with all rights. use in command as follow 
+
+git remote set-url origin https://mbellorini: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@github.com/mbellorini/XCVarioHB3436.git
+
+!!!
+
+Then it should work
+
+git push --set-upstream origin 23.0925_based
+
+
+
+
+
+- Then in GitHub, use CMakeCommand using the Branch to build the Software
+
+- Used Artifact to Programm the device. Long-Push shortly after Device-Power-Up does the Trick. Connect to XCVario-Wifi, 192.168.4.1, follow instructions
