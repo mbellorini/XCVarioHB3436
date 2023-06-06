@@ -86,6 +86,27 @@ void Protocols::sendNmeaHDT( float heading ) {
 	Router::sendXCV(str);
 }
 
+void Protocols::sendNmeaPBELB( float empty_kg, float crew_kg, float water_kg, float max_ballast_kg, float wingarea_m2, float iasKmh ) {
+/*
+  my own pbelb sentence with useful stuff...
+  empty_kg
+  crew_kg
+  water_kg
+  max_ballast_kg
+  wingarea_m2
+  iasKmh
+	heading/track (degrees as in gprmc), not known here and therefore empty (see last comma)
+	flap-position (-9 .. 13), not known here and therefore empty (see last comma)
+*/
+	char str[60];
+	sprintf( str,"$PBELB,%1.0f,%1.0f,%1.0f,%1.0f,%1.2f,%.2f,,", empty_kg, crew_kg, water_kg, max_ballast_kg, wingarea_m2, iasKmh);
+
+	int cs = calcNMEACheckSum(&str[1]);
+	int i = strlen(str);
+	sprintf( &str[i], "*%02X\r\n", cs );
+	Router::sendXCV(str);
+}
+
 void Protocols::sendItem( const char *key, char type, void *value, int len, bool ack ){
 	if( Flarm::bincom )  // do not sent to client in case
 		return;
