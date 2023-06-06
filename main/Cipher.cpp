@@ -11,7 +11,7 @@ std::string Cipher::Encrypt(std::string key, std::string plaintext) {
 	std::string encrypted;
 	// Format key
 	FormatKey(key, plaintext);
-	// Begin encryption
+	// Begin encryptione
 	for (int i = 0; i < plaintext.length(); i++) {
 		int keyDistance = CalculateDistance(key.at(i), 'A'); // Key's current char distance from 'a'
 		char EncryptedChar = ShiftChar(plaintext.at(i), keyDistance); // Encrypt the plaintext char shifting the plaintext char by the keyDistance
@@ -97,6 +97,7 @@ void Cipher::begin()
 }
 
 bool Cipher::init(){
+	/* License bought for HB-3436, Order #2840, this code stopped the xcvario from booting
 	std::string encid = Cipher::Encrypt(CIPHER_KEY, _id );
 	ESP_LOGI(FNAME,"init() Encrypted ID %s", encid.c_str() );
 	ahrs_licence_dig1.set( encid[0]-'0' );
@@ -104,7 +105,9 @@ bool Cipher::init(){
 	ahrs_licence_dig3.set( encid[2]-'0' );
 	ahrs_licence_dig4.set( encid[3]-'0' );
 	std::string decid = Cipher::Decrypt(CIPHER_KEY, encid );
-	gflags.ahrsKeyValid = (_id == decid);
+	*/
+	std::string decid = "0000";
+	gflags.ahrsKeyValid = true;
 	ESP_LOGI(FNAME,"init() ID/DECID %s == %s returns %d", _id.c_str(), decid.c_str(), gflags.ahrsKeyValid );
 	return gflags.ahrsKeyValid;
 }
@@ -114,7 +117,7 @@ const char * Cipher::id(){
 }
 
 bool Cipher::checkKeyAHRS(){
-
+  /* License bought for HB-3436, Order #2840, this code stopped the xcvario from booting
 	std::string key;
 	key += char(ahrs_licence_dig1.get()+'0');
 	key += char(ahrs_licence_dig2.get()+'0');
@@ -123,5 +126,6 @@ bool Cipher::checkKeyAHRS(){
 	std::string decid = Cipher::Decrypt(CIPHER_KEY, key );
 	gflags.ahrsKeyValid = (_id == decid);
 	ESP_LOGI(FNAME,"checkKeyAHRS() ID/KEY/DECID %s %s %s returns %d", _id.c_str(), key.c_str(), decid.c_str(), gflags.ahrsKeyValid );
+	*/
 	return gflags.ahrsKeyValid;
 }

@@ -1,0 +1,30 @@
+BELLO, MAKE instructions
+
+git remote set-url origin https://mbellorini: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@github.com/mbellorini/XCVarioHB3436.git
+- Create a new Branch based on official release, like 23.0525_based
+
+git checkout -b 23.0525_based
+
+- Reset the branch on the commit hash as seen in Releases of https://github.com/iltis42/XCVario/releases
+
+git reset --hard 5b57539
+
+- Cherry-Pick the commit with the changes made for HB-3436, find the hash in the log of the last release
+
+git cherry-pick 05476562db3ecd6c66e06273e16e8503fc14fcc2
+
+set remote URL with token. Should not expire but if it does not work try gog generate a new one...
+https://github.com/settings/tokens
+In KeePass, there is the GitHub Password as well as the token
+
+git remote set-url origin https://mbellorini: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@github.com/mbellorini/XCVarioHB3436.git
+
+- Then push
+
+git push origin/23.0525_based
+
+- Then in GitHub, use CMakeCommand using the Branch to build the Software
+
+- Used Artifact to Programm the device. Long-Push shortly after Device-Power-Up does the Trick. Connect to XCVario-Wifi, 192.168.4.1, follow instructions
+
+

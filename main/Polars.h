@@ -20,6 +20,7 @@ typedef struct s_polars {
 	float    sink3;
 	float    max_ballast;   // in liters or kg
 	float    wingarea;
+	float    empty_weight;  // HB-3436: added
 } t_polar;
 
 

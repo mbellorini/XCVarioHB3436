@@ -95,7 +95,7 @@ void S2F::setPolar()
 	polar_wingload.set( p.wingload );
 	polar_max_ballast.set( p.max_ballast );
 	polar_wingarea.set( p.wingarea, true, false );
-	empty_weight.set( (p.wingload * p.wingarea) - 80.0, true, false ); // Calculate default for emtpy mass
+	empty_weight.set( p.empty_weight, true, false ); // HB-3436: Übernommen aus erweiterter Polare
 	if( Protocols::getXcvProtocolVersion() > 1 ){
 			Protocols::sendNmeaXCVCmd( "empty-weight", empty_weight.get() );
 	}
